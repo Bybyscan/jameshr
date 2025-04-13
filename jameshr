@@ -1,0 +1,311 @@
+#
+#
+#
+<?php
+# @bybyscan * Версия 3.0  для Телеграм  #26/12/2024
+use Longman\TelegramBot\Telegram;
+use Longman\TelegramBot\Request;
+#
+updateHistory();
+#
+$string = file_get_contents('php://input');
+file_put_contents('./var/tgdata.json',$string);
+#
+tghandler();
+clean();
+add1();
+add();
+#
+ch_chad();#отправляем запрос в chadGPT
+
+#
+aierror();#Проверка переполнения, нужно добавить проверку всех AI Errors
+parser();#извлекаем текст ответа от chadGPT
+#
+$response = file_get_contents('./var/chatgptanswer.txt');
+counter($response);
+sendmessage();
+#
+// Вызываем функцию и получаем ответ
+
+function tghandler(){
+    
+//tg_post_json_parser
+
+$data = file_get_contents('./var/tgdata.json');//принимаем json
+$result = json_decode($data,true);//кодируем в array
+//парсинг array
+$text = $result['message']['text']; //Текст сообщения
+$chat_id = $result['message']['chat']['id']; //Уникальный идентификатор пользователя
+$name = $result['message']['from']['username']; //Юзернейм пользователя
+$message_id =$result['message']['message_id'];//номер сообщения
+
+file_put_contents('./var/tgpost.txt',$text);//сохраняем текст ответа для передачи в brain
+file_put_contents('./var/tgchat_id.txt',$chat_id);//сохраняем chat_id для передачи в brain
+file_put_contents('./var/tgname.txt',$name);//сохраняем name для передачи в brain
+file_put_contents('./var/tgmessage_id.txt',$message_id);
+
+}
+function add1(){
+//итеративное создание history, без system, файл hiarr.txt
+// Инициализация переменных
+$user = file_get_contents('./var/tgpost.txt');//Текст сообщения пользователя
+$assistant = file_get_contents('./var/chatgptanswer.txt');//Текст сообщения ассистента
+// Функция для добавления сообщения в историю
+function addToHistory($user, $assistant) {
+    // Создание массива history
+    // Добавление сообщения пользователя
+    $history[] = array(
+        "role" => "user",
+        "content" => $user
+    );
+    // Добавление сообщения ассистента
+    $history[] = array(
+        "role" => "assistant",
+        "content" => $assistant
+    );
+    
+    return json_encode ($history, JSON_UNESCAPED_UNICODE);
+}
+// Вызов функции и вывод результата
+$jsonHistory = addToHistory($user, $assistant);
+$jsonHistory = trim($jsonHistory, '[]');// Убираем квадратные скобки с помощью функции trim
+#echo $jsonHistory;exit;
+file_put_contents('./var/hiarr.txt',$jsonHistory);
+#
+#$jsonHistory = '{"example": "data"}'; // Пример данных, которые нужно сохранить
+$jsonHistory = file_get_contents('./var/hiarr.txt');
+$filePath = './var/history.txt'; // Путь к файлу
+
+// Проверяем, существует ли файл и не пуст ли он
+if (file_exists($filePath) && filesize($filePath) > 0) {
+    // Если файл не пустой, читаем его содержимое
+    $existingContent = file_get_contents($filePath);
+    // Добавляем запятую и перенос строки перед новым содержимым
+    $newContent = rtrim($existingContent, "\n") . ",\n" . $jsonHistory;
+} else {
+    // Если файл пустой, просто используем $jsonHistory
+    $newContent = $jsonHistory;
+}
+
+// Ставим запятую, добавляем данные, записываем обратно в файл - работает
+
+#echo ",\r\n". $newContent;
+file_put_contents($filePath,$newContent);#($filePath,"\n". $newContent)это лишний перевод строки
+}
+function add(){
+$historyFile = './var/history.txt';
+$briefFile = './var/brief.txt';
+
+// Проверяем, существует ли файл history.txt
+if (file_exists($historyFile)) {
+    // Проверяем, пустой ли файл
+    if (filesize($historyFile) == 0) {
+        // Читаем содержимое из brief.txt
+        if (file_exists($briefFile)) {
+            $briefContent = file_get_contents($briefFile);
+            
+            // Записываем содержимое в history.txt
+            file_put_contents($historyFile, $briefContent);
+            echo "Содержимое из brief.txt было записано в history.txt.";
+        } else {
+            echo "Файл brief.txt не найден.";
+        }
+    } else {
+        echo "Файл history.txt не пустой, продолжаем выполнение кода.";
+    }
+} else {
+    echo "Файл history.txt не найден.";
+}
+
+}
+function ch_chad(){
+$history = file_get_contents('./var/history.txt');
+$key = file_get_contents('./var/key.txt');
+$message = file_get_contents('./var/tgpost.txt'); // Извлечение текста сообщения
+$postchad = '{"message": "'.$message.'","temperature":0.1,"max_tokens":100,"api_key": "'.$key.'","history": ['.$history.']}';
+#file_put_contents('./var/content.txt',$message);//сохраняем входящее сообщение пользователя
+$chadurl = 'https://ask.chadgpt.ru/api/public/gpt-4o-mini';
+$ch_chad = curl_init($chadurl);
+// Устанавливаем параметры для запроса
+curl_setopt($ch_chad, CURLOPT_POST, true);
+curl_setopt($ch_chad, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch_chad, CURLOPT_HTTPHEADER, array(
+    'Content-Type: application/json',
+));
+// Преобразуем JSON строку в массив
+$data = json_decode($postchad, true);
+// Передаем данные в формате JSON
+curl_setopt($ch_chad, CURLOPT_POSTFIELDS, json_encode($data));
+curl_setopt($ch_chad, CURLOPT_CONNECTTIMEOUT, 0.5);
+curl_setopt($ch_chad, CURLOPT_TIMEOUT, 0.5);
+// Выполняем запрос и получаем ответ
+$response_chad = curl_exec($ch_chad);
+// Закрываем соединение
+curl_close($ch_chad);
+echo "Ответ от chadGpt: ".$response_chad."\r\n";
+file_put_contents('./var/chatgptresponse.json',$response_chad);
+}
+function parser(){
+### Парсер ответа и очистка текста
+// Распарсить JSON в массив
+$jsonch = file_get_contents('./var/chatgptresponse.json');
+$datach = json_decode($jsonch, true);//json_decode($jsonData2, true)
+// Извлечение содержимого ключей
+$isSuccess = $datach['is_success'];//тут Булево значение и хз как его сохранять
+$responseG = $datach['response'];file_put_contents('./var/chatgptanswer.txt',$responseG);
+$usedWordsCount = $datach['used_words_count'];# test ok
+// Функция для очистки строки
+function cleanResponse($string) {
+    // Удалить все знаки и символы, кроме букв, цифр, одиночных пробелов, запятых, (),+-
+    #return preg_replace('/[^a-zA-Zа-яА-ЯёЁ0-9\s,()+-]+/u', '', $string);
+    // Удалить все знаки и символы, кроме букв, цифр, одиночных пробелов, точек, запятых, (),+,-, двойной слэш, одинарный слэш
+    return preg_replace('/[^a-zA-Zа-яА-ЯёЁ0-9\s,()+\-\/\\\\]+/u', '', $string);
+}
+/*Проверка исчерпания лимита CHADGPT 
+$isSuccess = file_get_contents('./var/success.data');
+offLimit($isSuccess);exit;
+function offLimit($isSuccess){
+   
+    if($isSuccess === 'false'){echo "\r\n Лимит исчерпан или иная ошибка AI";exit;}}
+*/     
+// Очистка содержимого 'responseG'
+$responseG = file_get_contents('./var/chatgptanswer.txt');
+$cleanedResponse = cleanResponse($responseG);
+
+// Сохранение в строковой переменной
+$finalResponse = $cleanedResponse;
+//$isSuccess = file_get_contents('./var/success.txt');
+echo "\r\n Ответ очищен от лишних знаков: \r\n".$finalResponse."\r\n";# success".$isSuccess;
+
+file_put_contents('./var/chatgptanswer.txt',$finalResponse);
+}
+function sendmessage(){
+// Путь к файлу
+$file_path = './var/chatgptanswer.txt';
+
+// Проверяем, существует ли файл
+if (file_exists($file_path)) {
+    // Извлекаем содержимое файла
+    $message = file_get_contents($file_path);
+    
+    // Кодируем текст сообщения для URL
+    $encoded_message = urlencode($message);
+    
+    // Токен бота и chat_id
+    $bot_token = file_get_contents('./var/token.txt');
+    $chat_id = file_get_contents('./var/tgchat_id.txt');
+    
+    // Формируем URL для отправки сообщения
+    $url = "https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=$encoded_message";
+
+    // Инициализируем cURL сеанс
+    $ch = curl_init();
+    
+    // Настраиваем параметры cURL
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    
+    // Выполняем запрос
+    $response = curl_exec($ch);
+    
+    // Проверяем на наличие ошибок cURL
+    if (curl_errno($ch)) {
+        echo 'Ошибка cURL: ' . curl_error($ch);
+    } else {
+        echo 'Ответ от Telegram: ' . $response;
+    }
+    
+    // Закрываем cURL сеанс
+    curl_close($ch);
+} else {
+    echo 'Файл не найден: ' . $file_path;
+}
+
+}
+function aierror(){
+ $response_chad = file_get_contents('./var/chatgptresponse.json');   
+
+$data = json_decode($response_chad, true);
+
+// Проверяем значение ключа 'is_success'
+if (isset($data['is_success']) && $data['is_success'] === false) {
+    file_put_contents('./var/chatgptresponse.json',''); // Если "is_success" равно false, присваиваем пустое значение
+}
+}
+
+
+
+function counter($response) {
+// Задаем случайное число от 0 до 3
+$random = rand(0, 3);
+
+// Проверяем, равно ли случайное число 3
+if ($random === 3) {
+    // Читаем содержимое файла tgname.txt
+    $tgname = file_get_contents('./var/tgname.txt');
+    
+    // Читаем содержимое файла chatgptanswer.txt
+    #$response = file_get_contents('./var/chatgptanswer.txt');
+    
+    // Объединяем данные
+    $response = $tgname . ', ' . $response;
+    
+    // Записываем обновленное содержимое обратно в файл chatgptanswer.txt
+   file_put_contents('./var/chatgptanswer.txt', $response);
+  #return $response;
+  echo $response."\r\n";
+}
+
+}
+function updateHistory(){
+    # если файл '/var/history.txt' не обновляется в течение часа, то он будет перезаписан пустым значением.
+// Путь к файлу
+$filePath = '/var/history.txt';
+
+// Проверяем, существует ли файл
+if (file_exists($filePath)) {
+    // Получаем время последнего изменения файла
+    $lastModifiedTime = filemtime($filePath);
+    // Получаем текущее время
+    $currentTime = time();
+
+    // Пытаемся определить, прошло ли больше 1 часа (3600 секунд)
+    if (($currentTime - $lastModifiedTime) > 3600) {
+        // Если прошло больше часа, записываем пустую строку в файл
+        file_put_contents($filePath, '');
+    }
+} else {
+    // Если файл не существует, создаем его и записываем пустую строку
+    file_put_contents($filePath, '');
+}
+
+}
+function clean(){
+    
+// Путь к файлу
+$filePath = './var3/tgpost.txt';
+
+// Получаем содержимое файла
+$user = file_get_contents($filePath);
+
+// Проверяем, успешно ли считано содержимое
+if ($user === false) {
+    die("Ошибка: не удалось прочитать файл.");
+}
+
+// Очищаем текст, оставляя только буквы и знаки препинания
+$cleanedText = preg_replace('/[^a-zA-Zа-яА-ЯёЁ0-9\s,.;:!?\'"()]/u', '', $user);
+
+// Сохраняем очищенный текст обратно в файл
+$result = file_put_contents($filePath, $cleanedText);
+
+// Проверяем, сохранены ли изменения успешно
+if ($result === false) {
+    die("Ошибка: не удалось сохранить файл.");
+}
+
+echo "Текст успешно очищен и сохранен.";
+
+}
+?>
